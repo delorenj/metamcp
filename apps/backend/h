@@ -1,0 +1,24 @@
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/home/delorenj/code/mcp/metamcp/apps/backend/drizzle.config.ts'
+Using 'pg' driver for database querying
+[⣷] applying migrations...DrizzleQueryError: Failed query: CREATE SCHEMA IF NOT EXISTS "drizzle"
+params: 
+    at NodePgPreparedQuery.queryWithCache (/home/delorenj/code/mcp/metamcp/node_modules/.pnpm/drizzle-orm@0.44.2_@types+pg@8.15.4_kysely@0.28.2_pg@8.16.0/node_modules/src/pg-core/session.ts:74:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async PgDialect.migrate (/home/delorenj/code/mcp/metamcp/node_modules/.pnpm/drizzle-orm@0.44.2_@types+pg@8.15.4_kysely@0.28.2_pg@8.16.0/node_modules/src/pg-core/dialect.ts:85:3)
+    at async migrate (/home/delorenj/code/mcp/metamcp/node_modules/.pnpm/drizzle-orm@0.44.2_@types+pg@8.15.4_kysely@0.28.2_pg@8.16.0/node_modules/src/node-postgres/migrator.ts:10:2) {
+  query: 'CREATE SCHEMA IF NOT EXISTS "drizzle"',
+  params: [],
+  cause: Error: getaddrinfo EAI_AGAIN http
+      at /home/delorenj/code/mcp/metamcp/node_modules/.pnpm/pg-pool@3.10.0_pg@8.16.0/node_modules/pg-pool/index.js:45:11
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async <anonymous> (/home/delorenj/code/mcp/metamcp/node_modules/.pnpm/drizzle-orm@0.44.2_@types+pg@8.15.4_kysely@0.28.2_pg@8.16.0/node_modules/src/node-postgres/session.ts:149:14)
+      at async NodePgPreparedQuery.queryWithCache (/home/delorenj/code/mcp/metamcp/node_modules/.pnpm/drizzle-orm@0.44.2_@types+pg@8.15.4_kysely@0.28.2_pg@8.16.0/node_modules/src/pg-core/session.ts:72:12)
+      at async PgDialect.migrate (/home/delorenj/code/mcp/metamcp/node_modules/.pnpm/drizzle-orm@0.44.2_@types+pg@8.15.4_kysely@0.28.2_pg@8.16.0/node_modules/src/pg-core/dialect.ts:85:3)
+      at async migrate (/home/delorenj/code/mcp/metamcp/node_modules/.pnpm/drizzle-orm@0.44.2_@types+pg@8.15.4_kysely@0.28.2_pg@8.16.0/node_modules/src/node-postgres/migrator.ts:10:2) {
+    errno: -3001,
+    code: 'EAI_AGAIN',
+    syscall: 'getaddrinfo',
+    hostname: 'http'
+  }
+}

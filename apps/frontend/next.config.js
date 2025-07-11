@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  async redirects() {
+    return [
+      {
+        source: '/cors-error',
+        destination: '/',
+        permanent: false,
+      },
+    ]
+  },
   async rewrites() {
     // Use localhost for rewrites since frontend and backend run in the same container
     const backendUrl = "http://localhost:12009";

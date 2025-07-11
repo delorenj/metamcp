@@ -1,12 +1,16 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
-
 import { defineConfig } from "drizzle-kit";
+
+// Remove any http:// from the URL and ensure proper format
+function getDatabaseUrl() {
+  const url = process.env.POSTGRES_URL?.replace('http://', '') || '';
+  return `${url}/metamcp`;
+}
+
 export default defineConfig({
   out: "./drizzle",
   schema: "./src/db/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    // @ts-expect-error outside dir
-    url: process.env.DATABASE_URL!,
+    url: getDatabaseUrl(),
   },
 });
