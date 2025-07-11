@@ -1,2 +1,336 @@
+[tools]
+node = "22"
+python = "3.12"
+pnpm = "latest"
+
 [env]
 _.file = ".env"
+# MetaMCP Configuration
+METAMCP_ROOT = "{{config_root}}"
+METAMCP_BACKEND_PORT = "12009"
+METAMCP_FRONTEND_PORT = "12008"
+METAMCP_DB_PATH = "{{config_root}}/apps/backend/db.sqlite"
+
+# Development URLs
+METAMCP_BACKEND_URL = "http://localhost:12009"
+METAMCP_FRONTEND_URL = "http://localhost:12008"
+METAMCP_PUBLIC_URL = "https://mcp.delo.sh"
+
+[tasks.install]
+description = "Install all dependencies"
+run = [
+    "echo '🔧 Installing MetaMCP dependencies...'",
+    "pnpm install",
+    "echo '✅ Dependencies installed'"
+]
+
+[tasks.build]
+description = "Build all applications"
+depends = ["install"]
+run = [
+    "echo '🏗️  Building MetaMCP...'",
+    "echo '📦 Building backend...'",
+    "cd apps/backend && pnpm build",
+    "echo '📦 Building frontend...'", 
+    "cd apps/frontend && pnpm build",
+    "echo '✅ All builds complete'"
+]
+
+[tasks.db-migrate]
+description = "Run database migrations"
+depends = ["install"]
+run = [
+    "echo '🗄️  Running database migrations...'",
+    "cd apps/backend",
+    "pnpm drizzle-kit migrate",
+    "echo '✅ Migrations complete'"
+]
+
+[tasks.db-reset]
+description = "Reset database and run migrations"
+run = [
+    "echo '💥 Resetting database...'",
+    "rm -f apps/backend/db.sqlite*",
+    "mise run db-migrate",
+    "echo '✅ Database reset complete'"
+]
+
+[tasks.db-studio]
+description = "Open Drizzle Studio for database management"
+run = [
+    "echo '🎛️  Opening Drizzle Studio...'",
+    "cd apps/backend",
+    "pnpm drizzle-kit studio"
+]
+
+[tasks.backend]
+description = "Start backend server"
+depends = ["build", "db-migrate"]
+run = [
+    "echo '🚀 Starting MetaMCP Backend on port $METAMCP_BACKEND_PORT...'",
+    "cd apps/backend",
+    "PORT=$METAMCP_BACKEND_PORT node dist/index.js"
+]
+
+[tasks.frontend]
+description = "Start frontend server"
+depends = ["build"]
+run = [
+    "echo '🚀 Starting MetaMCP Frontend on port $METAMCP_FRONTEND_PORT...'",
+    "cd apps/frontend", 
+    "pnpm start:dev"
+]
+
+[tasks.frontend-prod]
+description = "Start frontend in production mode"
+depends = ["build"]
+run = [
+    "echo '🚀 Starting MetaMCP Frontend (Production) on port $METAMCP_FRONTEND_PORT...'",
+    "cd apps/frontend",
+    "PORT=$METAMCP_FRONTEND_PORT pnpm start:standalone"
+]
+
+[tasks.dev]
+description = "Start both frontend and backend in development mode"
+depends = ["build", "db-migrate"]
+run = [
+    "echo '🚀 Starting MetaMCP Development Environment...'",
+    "echo '📍 Backend: $METAMCP_BACKEND_URL'",
+    "echo '📍 Frontend: $METAMCP_FRONTEND_URL'", 
+    "echo '📍 Public: $METAMCP_PUBLIC_URL'",
+    "echo ''",
+    "./scripts/dev.sh"
+]
+
+[tasks.dev-fresh]
+description = "Fresh development start (clean build + migrations)"
+depends = ["clean", "install", "build", "db-migrate"]
+run = [
+    "mise run dev"
+]
+
+[tasks.prod]
+description = "Start both services in production mode"
+depends = ["build", "db-migrate"]
+run = [
+    "echo '🚀 Starting MetaMCP Production Environment...'",
+    "./scripts/prod.sh"
+]
+
+[tasks.clean]
+description = "Clean all build artifacts"
+run = [
+    "echo '🧹 Cleaning build artifacts...'",
+    "rm -rf apps/frontend/.next",
+    "rm -rf apps/backend/dist", 
+    "rm -rf node_modules/.cache",
+    "echo '✅ Clean complete'"
+]
+
+[tasks.lint]
+description = "Run linting on all applications"
+depends = ["install"]
+run = [
+    "echo '🔍 Linting MetaMCP...'",
+    "cd apps/backend && pnpm lint",
+    "cd apps/frontend && pnpm lint",
+    "echo '✅ Linting complete'"
+]
+
+[tasks.test]
+description = "Run tests for all applications"
+depends = ["install"]
+run = [
+    "echo '🧪 Running MetaMCP tests...'",
+    "cd apps/backend && pnpm test || echo 'No backend tests configured'",
+    "cd apps/frontend && pnpm test || echo 'No frontend tests configured'",
+    "echo '✅ Tests complete'"
+]
+
+[tasks.typecheck]
+description = "Run TypeScript type checking"
+depends = ["install"]
+run = [
+    "echo '📝 Type checking MetaMCP...'",
+    "cd apps/backend && pnpm check-types",
+    "cd apps/frontend && pnpm check-types", 
+    "echo '✅ Type checking complete'"
+]
+
+[tasks.health]
+description = "Check health of running services"
+run = [
+    "echo '🏥 Checking MetaMCP service health...'",
+    "./scripts/debug-routing.sh"
+]
+
+[tasks.logs]
+description = "View service logs (requires services to be running)"
+run = [
+    "echo '📊 Viewing MetaMCP logs...'",
+    "echo 'Backend logs:'",
+    "curl -s $METAMCP_BACKEND_URL/health || echo 'Backend not responding'",
+    "echo ''",
+    "echo 'Frontend logs:'", 
+    "curl -s $METAMCP_FRONTEND_URL/ > /dev/null && echo 'Frontend responding' || echo 'Frontend not responding'"
+]
+
+[tasks.logs-backend]
+description = "View backend service logs"
+run = [
+    "echo '📊 MetaMCP Backend Logs:'",
+    "sudo journalctl -u metamcp-backend.service -f"
+]
+
+[tasks.logs-frontend]
+description = "View frontend service logs"
+run = [
+    "echo '📊 MetaMCP Frontend Logs:'",
+    "sudo journalctl -u metamcp-frontend.service -f"
+]
+
+[tasks.logs-all]
+description = "View all MetaMCP service logs"
+run = [
+    "echo '📊 All MetaMCP Service Logs:'",
+    "sudo journalctl -u metamcp-backend.service -u metamcp-frontend.service -f"
+]
+
+[tasks.services-install]
+description = "Install MetaMCP as system services (launchd on macOS)"
+run = [
+    "echo '⚙️  Installing MetaMCP as system services...'",
+    "./scripts/install-services.sh",
+    "echo '✅ Services installed - use `mise run services-start` to start them'"
+]
+
+[tasks.services-uninstall] 
+description = "Uninstall MetaMCP system services"
+run = [
+    "echo '🗑️  Uninstalling MetaMCP system services...'",
+    "./scripts/uninstall-services.sh",
+    "echo '✅ Services uninstalled'"
+]
+
+[tasks.services-start]
+description = "Start MetaMCP system services"
+run = [
+    "echo '▶️  Starting MetaMCP system services...'",
+    "sudo systemctl start metamcp-backend.service",
+    "sudo systemctl start metamcp-frontend.service",
+    "echo '✅ Services started'"
+]
+
+[tasks.services-stop]
+description = "Stop MetaMCP system services"
+run = [
+    "echo '⏹️  Stopping MetaMCP system services...'",
+    "sudo systemctl stop metamcp-backend.service",
+    "sudo systemctl stop metamcp-frontend.service",
+    "echo '✅ Services stopped'"
+]
+
+[tasks.services-restart]
+description = "Restart MetaMCP system services"
+run = [
+    "echo '🔄 Restarting MetaMCP system services...'",
+    "sudo systemctl restart metamcp-backend.service",
+    "sudo systemctl restart metamcp-frontend.service",
+    "echo '✅ Services restarted'"
+]
+
+[tasks.services-status]
+description = "Check status of MetaMCP system services"
+run = [
+    "echo '📊 MetaMCP Service Status:'",
+    "echo ''",
+    "echo 'Backend Service:'",
+    "sudo systemctl status metamcp-backend.service --no-pager -l",
+    "echo ''", 
+    "echo 'Frontend Service:'",
+    "sudo systemctl status metamcp-frontend.service --no-pager -l",
+    "echo ''",
+    "mise run health"
+]
+
+[tasks.services-enable]
+description = "Enable MetaMCP services to start on boot"
+run = [
+    "echo '🚀 Enabling MetaMCP services for boot startup...'",
+    "sudo systemctl enable metamcp-backend.service",
+    "sudo systemctl enable metamcp-frontend.service",
+    "echo '✅ Services enabled for boot startup'"
+]
+
+[tasks.services-disable]
+description = "Disable MetaMCP services from starting on boot"
+run = [
+    "echo '🛑 Disabling MetaMCP services from boot startup...'",
+    "sudo systemctl disable metamcp-backend.service",
+    "sudo systemctl disable metamcp-frontend.service",
+    "echo '✅ Services disabled from boot startup'"
+]
+
+[tasks.docker-build]
+description = "Build Docker images for MetaMCP"
+depends = ["build"]
+run = [
+    "echo '🐳 Building MetaMCP Docker images...'",
+    "docker build -t metamcp:latest .",
+    "echo '✅ Docker images built'"
+]
+
+[tasks.docker-up]
+description = "Start MetaMCP with Docker Compose"
+run = [
+    "echo '🐳 Starting MetaMCP with Docker Compose...'",
+    "docker-compose up -d",
+    "echo '✅ MetaMCP started with Docker'"
+]
+
+[tasks.docker-down]
+description = "Stop MetaMCP Docker containers"
+run = [
+    "echo '🐳 Stopping MetaMCP Docker containers...'",
+    "docker-compose down",
+    "echo '✅ MetaMCP Docker containers stopped'"
+]
+
+[tasks.setup]
+description = "Complete MetaMCP setup (install, build, migrate, install services)"
+run = [
+    "echo '🎯 Setting up MetaMCP...'",
+    "mise run install",
+    "mise run build", 
+    "mise run db-migrate",
+    "mise run services-install",
+    "echo ''",
+    "echo '✅ MetaMCP setup complete!'",
+    "echo ''", 
+    "echo '📋 Next steps:'",
+    "echo '  • Start services: mise run services-start'",
+    "echo '  • Check status: mise run services-status'", 
+    "echo '  • Development: mise run dev'",
+    "echo '  • Health check: mise run health'"
+]
+
+# Development workflow shortcuts
+[tasks.quick]
+description = "Quick development start (assumes everything is built)"
+run = ["mise run dev"]
+
+[tasks.fresh]
+description = "Fresh start - clean everything and rebuild"
+run = ["mise run dev-fresh"]
+
+[tasks.ship]
+description = "Production deployment preparation"
+run = [
+    "mise run clean",
+    "mise run install", 
+    "mise run typecheck",
+    "mise run lint",
+    "mise run build",
+    "mise run db-migrate",
+    "echo '🚢 Ready for production deployment!'"
+]

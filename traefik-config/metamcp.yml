@@ -1,0 +1,61 @@
+# MetaMCP Traefik Dynamic Configuration
+# Save this to your traefik dynamic config directory
+
+http:
+  routers:
+    # Backend API routes - highest priority
+    metamcp-backend:
+      rule: "Host(`localhost`) && (PathPrefix(`/api`) || PathPrefix(`/trpc`) || PathPrefix(`/mcp-proxy`) || PathPrefix(`/metamcp`) || PathPrefix(`/health`))"
+      service: metamcp-backend-service
+      priority: 200
+
+    # Frontend routes - lower priority (catches everything else)
+    metamcp-frontend:
+      rule: "Host(`localhost`)"
+      service: metamcp-frontend-service
+      priority: 100
+
+  services:
+    metamcp-backend-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:12009"
+            # Use host.docker.internal if running in Docker
+            # Or use http://localhost:12009 if running natively
+
+    metamcp-frontend-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:12008"
+            # Use host.docker.internal if running in Docker
+            # Or use http://localhost:12008 if running natively
+
+  middlewares:
+    # CORS middleware for API requests
+    cors-headers:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+          - PATCH
+        accessControlAllowOriginList:
+          - "http://localhost:12008"
+          - "http://localhost"
+          - "http://127.0.0.1"
+        accessControlAllowHeaders:
+          - "Content-Type"
+          - "Authorization"
+          - "Accept"
+          - "Origin"
+          - "X-Requested-With"
+        accessControlMaxAge: 86400
+        accessControlAllowCredentials: true
+
+# TLS configuration (if needed)
+# tls:
+#   certificates:
+#     - certFile: /path/to/cert.pem
+#       keyFile: /path/to/key.pem
