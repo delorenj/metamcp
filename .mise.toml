@@ -245,10 +245,10 @@ run = [
     "echo '📊 MetaMCP Service Status:'",
     "echo ''",
     "echo 'Backend Service:'",
-    "sudo systemctl status metamcp-backend.service --no-pager -l",
+    "systemctl status metamcp-backend.service --no-pager -l || true",
     "echo ''", 
     "echo 'Frontend Service:'",
-    "sudo systemctl status metamcp-frontend.service --no-pager -l",
+    "systemctl status metamcp-frontend.service --no-pager -l || true",
     "echo ''",
     "mise run health"
 ]
@@ -334,3 +334,149 @@ run = [
     "mise run db-migrate",
     "echo '🚢 Ready for production deployment!'"
 ]
+
+[tasks.fix-frontend-service]
+description = "Fix the frontend service to use regular Next.js instead of standalone"
+run = '''
+echo '🔧 Fixing frontend service configuration...'
+cat > /tmp/metamcp-frontend-fixed.service << 'EOF'
+[Unit]
+Description=MetaMCP Frontend Service
+After=network.target metamcp-backend.service
+Wants=network.target
+Requires=metamcp-backend.service
+
+[Service]
+Type=simple
+User=delorenj
+Group=delorenj
+WorkingDirectory=/home/delorenj/code/mcp/metamcp/apps/frontend
+Environment=NODE_ENV=production
+Environment=PORT=12008
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/delorenj/.local/bin:/home/delorenj/.mise/bin
+ExecStartPre=/usr/bin/mise exec -- node --version
+ExecStart=/usr/bin/mise exec -- pnpm start
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=metamcp-frontend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/delorenj/code/mcp/metamcp
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo cp /tmp/metamcp-frontend-fixed.service /etc/systemd/system/metamcp-frontend.service
+sudo systemctl daemon-reload
+sudo systemctl restart metamcp-frontend.service
+echo '✅ Frontend service fixed and restarted!'
+'''
+
+[tasks.restart-frontend]
+description = "Restart the frontend service"
+run = [
+    "sudo systemctl restart metamcp-frontend.service",
+    "echo '✅ Frontend service restarted!'"
+]
+
+[tasks.fix-backend-service]
+description = "Fix the backend service to load environment variables"
+run = '''
+echo '🔧 Fixing backend service configuration...'
+cat > /tmp/metamcp-backend-fixed.service << 'EOF'
+[Unit]
+Description=MetaMCP Backend Service
+After=network.target postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=delorenj
+Group=delorenj
+WorkingDirectory=/home/delorenj/code/mcp/metamcp/apps/backend
+EnvironmentFile=/home/delorenj/code/mcp/metamcp/.env.backend
+Environment=NODE_ENV=production
+Environment=PORT=12009
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/delorenj/.local/bin:/home/delorenj/.mise/bin
+Environment=DEFAULT_USERNAME=postgres
+Environment=DEFAULT_PASSWORD=postgres
+ExecStartPre=/usr/bin/mise exec -- node --version
+ExecStart=/usr/bin/mise exec -- node dist/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=metamcp-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/delorenj/code/mcp/metamcp
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo cp /tmp/metamcp-backend-fixed.service /etc/systemd/system/metamcp-backend.service
+sudo systemctl daemon-reload
+sudo systemctl restart metamcp-backend.service
+echo '✅ Backend service fixed and restarted!'
+'''
+
+[tasks.list-users]
+description = "List all users in the MetaMCP database"
+depends = ["install"]
+run = [
+    "echo '👥 Listing MetaMCP users...'",
+    "cd apps/backend && pnpm tsx scripts/manage-user-password.ts --list-users"
+]
+
+[tasks.set-user-password]
+description = "Set a new password for a user by email (Usage: mise run set-user-password -- <email> <password>)"
+depends = ["install"]
+run = [
+    "echo '🔐 Setting user password...'",
+    "cd apps/backend && pnpm tsx scripts/manage-user-password.ts \"$@\""
+]
+
+[tasks.reset-user-password]
+description = "Interactive password reset for a user"
+depends = ["install"]
+run = '''
+echo "🔐 MetaMCP Password Reset"
+echo "========================"
+echo ""
+
+# List users first
+echo "Available users:"
+cd apps/backend && pnpm tsx scripts/manage-user-password.ts --list-users
+
+echo ""
+read -p "Enter user email: " email
+read -s -p "Enter new password (min 8 chars): " password
+echo ""
+read -s -p "Confirm new password: " password_confirm
+echo ""
+
+if [ "$password" != "$password_confirm" ]; then
+    echo "❌ Passwords do not match!"
+    exit 1
+fi
+
+if [ ${#password} -lt 8 ]; then
+    echo "❌ Password must be at least 8 characters long!"
+    exit 1
+fi
+
+echo "🔄 Updating password for $email..."
+cd apps/backend && pnpm tsx scripts/manage-user-password.ts "$email" "$password"
+'''

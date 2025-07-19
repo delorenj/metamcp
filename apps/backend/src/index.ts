@@ -19,54 +19,59 @@ app.use((req, res, next) => {
 });
 
 // Mount better-auth routes by calling auth API directly
-app.use(async (req, res, next) => {
-  if (req.path.startsWith("/api/auth")) {
-    try {
-      // Create a web Request object from Express request
-      const url = new URL(req.url, `http://${req.headers.host}`);
-      const headers = new Headers();
+app.use("/api/auth", express.json(), async (req, res) => {
+  try {
+    // Create a web Request object from Express request
+    // Need to reconstruct the full URL including /api/auth prefix
+    const fullPath = `/api/auth${req.url}`;
+    const url = new URL(fullPath, `http://${req.headers.host}`);
+    
+    const headers = new Headers();
 
-      // Copy headers from Express request
-      Object.entries(req.headers).forEach(([key, value]) => {
-        if (value) {
-          headers.set(key, Array.isArray(value) ? value[0] : value);
-        }
-      });
+    // Copy headers from Express request
+    Object.entries(req.headers).forEach(([key, value]) => {
+      if (value) {
+        headers.set(key, Array.isArray(value) ? value[0] : value);
+      }
+    });
 
-      // Create Request object
-      const request = new Request(url.toString(), {
-        method: req.method,
-        headers,
-        body:
-          req.method !== "GET" && req.method !== "HEAD"
-            ? JSON.stringify(req.body)
-            : undefined,
-      });
-
-      // Call better-auth directly
-      const response = await auth.handler(request);
-
-      // Convert Response back to Express response
-      res.status(response.status);
-
-      // Copy headers
-      response.headers.forEach((value, key) => {
-        res.setHeader(key, value);
-      });
-
-      // Send body
-      const body = await response.text();
-      res.send(body);
-    } catch (error) {
-      console.error("Auth route error:", error);
-      res.status(500).json({
-        error: "Internal server error",
-        details: error instanceof Error ? error.message : String(error),
-      });
+    // Create Request object with proper body handling
+    let body: string | undefined = undefined;
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      if (req.body && typeof req.body === 'object') {
+        body = JSON.stringify(req.body);
+      } else if (typeof req.body === 'string') {
+        body = req.body;
+      }
     }
-    return;
+
+    const request = new Request(url.toString(), {
+      method: req.method,
+      headers,
+      body,
+    });
+
+    // Call better-auth directly
+    const response = await auth.handler(request);
+
+    // Convert Response back to Express response
+    res.status(response.status);
+
+    // Copy headers
+    response.headers.forEach((value, key) => {
+      res.setHeader(key, value);
+    });
+
+    // Send body
+    const responseBody = await response.text();
+    res.send(responseBody);
+  } catch (error) {
+    console.error("Auth route error:", error);
+    res.status(500).json({
+      error: "Internal server error",
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
-  next();
 });
 
 // Mount public endpoints routes (must be before JSON middleware to handle raw streams)
