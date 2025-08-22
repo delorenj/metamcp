@@ -1,0 +1,159 @@
+# Unified Multi-Mode Dockerfile for MetaMCP
+# Supports production, development, and test modes via APP_MODE environment variable
+
+# Use the official uv image as base
+FROM ghcr.io/astral-sh/uv:debian AS base
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    postgresql-client \
+    tini \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g pnpm@10.12.0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies stage - optimized for caching
+FROM base AS deps
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Copy package files for dependency resolution
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY turbo.json ./
+
+# Copy workspace package.json files
+COPY apps/frontend/package.json ./apps/frontend/
+COPY apps/backend/package.json ./apps/backend/
+COPY packages/eslint-config/package.json ./packages/eslint-config/
+COPY packages/trpc/package.json ./packages/trpc/
+COPY packages/typescript-config/package.json ./packages/typescript-config/
+COPY packages/zod-types/package.json ./packages/zod-types/
+
+# Install all dependencies (including dev dependencies for building)
+RUN pnpm install --frozen-lockfile
+
+# Builder stage - builds the application
+FROM base AS builder
+WORKDIR /app
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/frontend/node_modules ./apps/frontend/node_modules
+COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
+COPY --from=deps /app/packages ./packages
+
+# Copy source code
+COPY . .
+
+# Build all packages and applications
+RUN pnpm build
+
+# Apply Next.js timeout patch for proxy requests
+RUN find node_modules -name "proxy-request.js" -type f -exec sed -i 's/30000/600000/g' {} \; 2>/dev/null || true
+
+# Production runtime stage
+FROM base AS runtime
+WORKDIR /app
+
+# OCI labels for metadata
+LABEL org.opencontainers.image.source="https://github.com/metatool-ai/metamcp"
+LABEL org.opencontainers.image.description="MetaMCP - Unified MCP Server Aggregator"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.title="MetaMCP"
+LABEL org.opencontainers.image.vendor="metatool-ai"
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 --home /home/metamcp --shell /bin/sh metamcp && \
+    mkdir -p /home/metamcp/.cache/node/corepack && \
+    chown -R metamcp:nodejs /home/metamcp
+
+# Copy built applications with proper ownership
+COPY --from=builder --chown=metamcp:nodejs /app/apps/frontend/.next ./apps/frontend/.next
+COPY --from=builder --chown=metamcp:nodejs /app/apps/frontend/package.json ./apps/frontend/
+COPY --from=builder --chown=metamcp:nodejs /app/apps/backend/dist ./apps/backend/dist
+COPY --from=builder --chown=metamcp:nodejs /app/apps/backend/package.json ./apps/backend/
+COPY --from=builder --chown=metamcp:nodejs /app/apps/backend/drizzle ./apps/backend/drizzle
+COPY --from=builder --chown=metamcp:nodejs /app/apps/backend/drizzle.config.ts ./apps/backend/
+
+# Copy shared packages
+COPY --from=builder --chown=metamcp:nodejs /app/packages ./packages
+COPY --from=builder --chown=metamcp:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=metamcp:nodejs /app/package.json ./
+COPY --from=builder --chown=metamcp:nodejs /app/pnpm-workspace.yaml ./
+
+# Install production dependencies only
+RUN pnpm install --prod --frozen-lockfile
+
+# Install drizzle-kit for migrations
+RUN cd apps/backend && pnpm add drizzle-kit@0.31.1
+
+# Copy unified entrypoint script
+COPY --chown=metamcp:nodejs config/docker-entrypoint-unified.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+
+# Create config directory for mounting
+RUN mkdir -p /app/config && chown metamcp:nodejs /app/config
+
+# Create directory for optional source mounting (development mode)
+RUN mkdir -p /app/src && chown metamcp:nodejs /app/src
+
+# Switch to non-root user
+USER metamcp
+
+# Environment variables with defaults
+ENV APP_MODE=production
+ENV CONFIG_DIR=/app/config
+ENV NODE_ENV=production
+
+# Expose both frontend and backend ports
+EXPOSE 12008 12009
+
+# Health check that adapts to the mode
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:12008/health || exit 1
+
+# Use Tini for proper signal handling
+ENTRYPOINT ["/usr/bin/tini", "--", "./entrypoint.sh"]
+
+# Development stage (optional, for development builds)
+FROM base AS development
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=development
+ENV APP_MODE=development
+ENV WATCHPACK_POLLING=true
+ENV CHOKIDAR_USEPOLLING=true
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY turbo.json ./
+COPY apps/frontend/package.json ./apps/frontend/
+COPY apps/backend/package.json ./apps/backend/
+COPY packages/*/package.json ./packages/
+
+# Install all dependencies (including dev)
+RUN pnpm install
+
+# Copy unified entrypoint script
+COPY config/docker-entrypoint-unified.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+
+# Create directories
+RUN mkdir -p /app/config /app/src
+
+# Expose development ports
+EXPOSE 12008 12009
+
+# Health check for development
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:12008/health || exit 1
+
+# Use Tini for signal handling
+ENTRYPOINT ["/usr/bin/tini", "--", "./entrypoint.sh"]

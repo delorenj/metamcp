@@ -1,0 +1,102 @@
+services:
+  metamcp:
+    image: ghcr.io/metatool-ai/metamcp:latest
+    container_name: metamcp-${APP_MODE:-production}
+    pull_policy: always
+    env_file: .env
+    ports:
+      - "${FRONTEND_PORT:-12008}:12008"
+      - "${BACKEND_PORT:-12009}:12009"
+    volumes:
+      # Configuration directory (always mounted for flexibility)
+      - ${CONFIG_DIR:-./config}:/app/config:ro
+      # Source code mounting (conditional for development)
+      - type: ${SOURCE_MOUNT_TYPE:-volume}
+        source: ${SOURCE_MOUNT_SOURCE:-empty_volume}
+        target: /app/src
+        read_only: false
+    environment:
+      # Application mode
+      APP_MODE: ${APP_MODE:-production}
+      CONFIG_DIR: /app/config
+      
+      # Database connection
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-metamcp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-m3t4mcp}
+      POSTGRES_DB: ${POSTGRES_DB:-metamcp_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-metamcp_user}:${POSTGRES_PASSWORD:-m3t4mcp}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-metamcp_db}
+      
+      # Application URLs
+      APP_URL: ${APP_URL:-http://localhost:12008}
+      NEXT_PUBLIC_APP_URL: ${APP_URL:-http://localhost:12008}
+      
+      # Authentication
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-your-super-secret-key-change-this-in-production}
+      
+      # Optional OIDC (if configured)
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
+      OIDC_AUTHORIZATION_URL: ${OIDC_AUTHORIZATION_URL:-}
+      OIDC_PROVIDER_ID: ${OIDC_PROVIDER_ID:-oidc}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid email profile}
+      OIDC_PKCE: ${OIDC_PKCE:-true}
+      
+      # Docker networking
+      TRANSFORM_LOCALHOST_TO_DOCKER_INTERNAL: ${TRANSFORM_LOCALHOST_TO_DOCKER_INTERNAL:-true}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: ${RESTART_POLICY:-unless-stopped}
+    networks:
+      - metamcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: metamcp-postgres-${APP_MODE:-production}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-metamcp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-metamcp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-m3t4mcp}
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    ports:
+      - "${POSTGRES_EXTERNAL_PORT:-9433}:5432"
+    volumes:
+      - postgres_data_${APP_MODE:-production}:/var/lib/postgresql/data
+      # Optional: Custom postgres configuration
+      - ${POSTGRES_CONFIG_DIR:-./config/postgres}:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-metamcp_user} -d ${POSTGRES_DB:-metamcp_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - metamcp-network
+
+volumes:
+  postgres_data_production:
+    driver: local
+  postgres_data_development:
+    driver: local
+  postgres_data_test:
+    driver: local
+  empty_volume:
+    driver: local
+
+networks:
+  metamcp-network:
+    driver: bridge
+    name: metamcp-${APP_MODE:-production}
