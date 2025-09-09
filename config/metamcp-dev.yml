@@ -1,0 +1,163 @@
+# MetaMCP Development Configuration for Traefik
+# Adapted from metamcp-unified.yml for localhost development
+# Optimized for hot-reload with existing traefik infrastructure
+
+http:
+  middlewares:
+    # SSE-optimized middleware for MCP streaming (development version)
+    metamcp-dev-sse:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "http"  # Development uses HTTP
+          X-Forwarded-Host: "localhost"
+          X-Real-IP: "${clientIP}"
+          Connection: ""  # Clear connection header for HTTP/1.1
+        customResponseHeaders:
+          # Critical SSE headers - no buffering (same as production)
+          X-Accel-Buffering: "no"
+          Cache-Control: "no-cache, no-transform"
+          Connection: "keep-alive"
+          # CORS for MCP protocol (more permissive for dev)
+          Access-Control-Allow-Origin: "*"
+          Access-Control-Allow-Methods: "GET, POST, DELETE, OPTIONS, PUT, PATCH"
+          Access-Control-Allow-Headers: "mcp-protocol-version, mcp-session-id, content-type, cache-control, authorization, x-api-key, last-event-id"
+          Access-Control-Max-Age: "86400"
+    
+    # Standard headers for UI/API routes (development version)
+    metamcp-dev-standard:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "http"
+          X-Forwarded-Host: "localhost"
+          X-Real-IP: "${clientIP}"
+        customResponseHeaders:
+          X-Frame-Options: "SAMEORIGIN"
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "1; mode=block"
+          # CORS for general API (permissive for development)
+          Access-Control-Allow-Origin: "*"
+          Access-Control-Allow-Methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+          Access-Control-Allow-Headers: "content-type, authorization, x-api-key, x-requested-with"
+    
+    # Rate limiting for API endpoints (relaxed for development)
+    metamcp-dev-ratelimit:
+      rateLimit:
+        average: 500  # Higher limits for development
+        burst: 1000
+        period: 1m
+    
+    # Compression for non-streaming routes
+    metamcp-dev-compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+          - application/stream+json
+          - application/x-ndjson
+
+  routers:
+    # Main frontend UI (highest priority) - Development
+    metamcp-dev-ui:
+      rule: "Host(`metamcp.local`) && Path(`/`)"
+      entryPoints:
+        - web  # HTTP only for development
+      service: metamcp-dev-service
+      priority: 200
+      middlewares:
+        - metamcp-dev-standard
+        - metamcp-dev-compress
+    
+    # SSE/MCP proxy routes (high priority for streaming) - Development
+    metamcp-dev-mcp-proxy:
+      rule: "Host(`metamcp.local`) && PathPrefix(`/mcp-proxy/`)"
+      entryPoints:
+        - web
+      service: metamcp-dev-sse-service
+      priority: 150
+      middlewares:
+        - metamcp-dev-sse
+    
+    # Public MetaMCP endpoints with SSE support - Development
+    metamcp-dev-public:
+      rule: "Host(`metamcp.local`) && PathPrefix(`/metamcp/`)"
+      entryPoints:
+        - web
+      service: metamcp-dev-sse-service
+      priority: 140
+      middlewares:
+        - metamcp-dev-sse
+    
+    # API routes with rate limiting - Development
+    metamcp-dev-api:
+      rule: "Host(`metamcp.local`) && PathPrefix(`/api/`)"
+      entryPoints:
+        - web
+      service: metamcp-dev-service
+      priority: 100
+      middlewares:
+        - metamcp-dev-standard
+        - metamcp-dev-ratelimit
+        - metamcp-dev-compress
+    
+    # tRPC routes - Development
+    metamcp-dev-trpc:
+      rule: "Host(`metamcp.local`) && PathPrefix(`/trpc/`)"
+      entryPoints:
+        - web
+      service: metamcp-dev-service
+      priority: 90
+      middlewares:
+        - metamcp-dev-standard
+        - metamcp-dev-compress
+    
+    # Health check endpoint - Development
+    metamcp-dev-health:
+      rule: "Host(`metamcp.local`) && Path(`/health`)"
+      entryPoints:
+        - web
+      service: metamcp-dev-service
+      priority: 80
+      middlewares:
+        - metamcp-dev-standard
+    
+    # Static assets and everything else - Development
+    metamcp-dev-static:
+      rule: "Host(`metamcp.local`)"
+      entryPoints:
+        - web
+      service: metamcp-dev-service
+      priority: 10
+      middlewares:
+        - metamcp-dev-standard
+        - metamcp-dev-compress
+
+  services:
+    # Standard service for UI/API - Development
+    metamcp-dev-service:
+      loadBalancer:
+        servers:
+          # Connect to host machine where development server runs
+          - url: "http://host.docker.internal:12008"
+        healthCheck:
+          path: /health
+          interval: 30s
+          timeout: 10s
+    
+    # SSE-optimized service with extended timeouts - Development
+    metamcp-dev-sse-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:12008"
+        responseForwarding:
+          flushInterval: "1ms"  # Critical for SSE - immediate flush
+        healthCheck:
+          path: /health
+          interval: 30s
+          timeout: 10s
+
+  # Server transport for extended timeouts (SSE connections) - Development
+  serversTransports:
+    metamcp-dev-transport:
+      forwardingTimeouts:
+        dialTimeout: "10s"
+        responseHeaderTimeout: "86400s"  # 24 hours for SSE
+        idleConnTimeout: "86400s"        # 24 hours

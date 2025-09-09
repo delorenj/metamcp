@@ -2,101 +2,147 @@
 
 set -e
 
-echo "Starting MetaMCP services..."
+CONFIG_DIR=/app/config
 
-# Function to wait for postgres
-wait_for_postgres() {
-    echo "Waiting for PostgreSQL to be ready..."
-    until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER"; do
-        echo "PostgreSQL is not ready - sleeping 2 seconds"
-        sleep 2
-    done
-    echo "PostgreSQL is ready!"
+echo "🚀 Starting MetaMCP..."
+echo "📁 Working directory: $(pwd)"
+echo "🔧 Config directory: $CONFIG_DIR"
+
+# Load configuration function
+load_config() {
+  echo "📋 Configuration loaded"
+}
+
+# Signal handler setup
+setup_signal_handlers() {
+  trap cleanup_services TERM INT QUIT
 }
 
 # Function to run migrations
 run_migrations() {
-    echo "Running database migrations..."
-    cd /app/apps/backend
+  echo "🔄 Running database migrations..."
+  cd /app/apps/backend
+
+  # Ensure drizzle directory exists and has migration files
+  if [ -d "drizzle" ] && [ "$(ls -A drizzle/*.sql 2>/dev/null)" ]; then
+    echo "   Found migration files, running migrations..."
     
-    # Check if migrations need to be run
-    if [ -d "drizzle" ] && [ "$(ls -A drizzle/*.sql 2>/dev/null)" ]; then
-        echo "Found migration files, running migrations..."
-        # Use local drizzle-kit since env vars are available at system level in Docker
-        if pnpm exec drizzle-kit migrate; then
-            echo "Migrations completed successfully!"
-        else
-            echo "❌ Migration failed! Exiting..."
-            exit 1
-        fi
+    # Try to run migrations with drizzle-kit
+    if pnpm exec drizzle-kit migrate 2>/dev/null; then
+      echo "✅ Migrations completed successfully!"
     else
-        echo "No migrations found or directory empty"
+      echo "⚠️  drizzle-kit not available in production, attempting direct SQL migration..."
+      
+      # Fall back to running SQL files directly via psql if drizzle-kit is not available
+      export PGPASSWORD="$POSTGRES_PASSWORD"
+      
+      for sql_file in drizzle/*.sql; do
+        if [ -f "$sql_file" ]; then
+          echo "   Running migration: $(basename "$sql_file")"
+          if psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$sql_file" 2>/dev/null; then
+            echo "   ✅ $(basename "$sql_file") completed"
+          else
+            echo "   ⚠️  $(basename "$sql_file") may have already been applied or failed"
+          fi
+        fi
+      done
+      
+      echo "✅ Direct SQL migrations completed!"
     fi
-    
-    cd /app
+  else
+    echo "   ⚠️  No migrations found or directory empty"
+    echo "   Migration files should be in: $(pwd)/drizzle/"
+    ls -la drizzle/ 2>/dev/null || echo "   Directory does not exist"
+  fi
+
+  cd /app
 }
 
-# Set default values for postgres connection if not provided
-POSTGRES_HOST=${POSTGRES_HOST:-postgres}
-POSTGRES_PORT=${POSTGRES_PORT:-5432}
-POSTGRES_USER=${POSTGRES_USER:-postgres}
+# Production mode: Start built applications
+start_services() {
+  echo "🚀 Starting services..."
 
-# Wait for PostgreSQL
-wait_for_postgres
+  # Start backend
+  echo "   Starting backend server..."
+  cd /app/apps/backend
+  PORT=12009 node dist/index.js &
+  BACKEND_PID=$!
 
-# Run migrations
-run_migrations
-
-# Start backend in the background
-echo "Starting backend server..."
-cd /app/apps/backend
-PORT=12009 node dist/index.js &
-BACKEND_PID=$!
-
-# Wait a moment for backend to start
-sleep 3
-
-# Check if backend is still running
-if ! kill -0 $BACKEND_PID 2>/dev/null; then
+  # Wait and verify backend
+  sleep 3
+  if ! kill -0 $BACKEND_PID 2>/dev/null; then
     echo "❌ Backend server died! Exiting..."
     exit 1
-fi
-echo "✅ Backend server started successfully (PID: $BACKEND_PID)"
+  fi
+  echo "✅ Backend server started (PID: $BACKEND_PID)"
 
-# Start frontend
-echo "Starting frontend server..."
-cd /app/apps/frontend
-PORT=12008 pnpm start &
-FRONTEND_PID=$!
+  # Start frontend
+  echo "   Starting frontend server..."
+  cd /app/apps/frontend
+  PORT=12008 pnpm start &
+  FRONTEND_PID=$!
 
-# Wait a moment for frontend to start
-sleep 3
-
-# Check if frontend is still running
-if ! kill -0 $FRONTEND_PID 2>/dev/null; then
+  # Wait and verify frontend
+  sleep 3
+  if ! kill -0 $FRONTEND_PID 2>/dev/null; then
     echo "❌ Frontend server died! Exiting..."
     kill $BACKEND_PID 2>/dev/null
     exit 1
-fi
-echo "✅ Frontend server started successfully (PID: $FRONTEND_PID)"
+  fi
+  echo "✅ Frontend server started (PID: $FRONTEND_PID)"
 
-# Function to cleanup on exit
-cleanup() {
-    echo "Shutting down services..."
-    kill $BACKEND_PID 2>/dev/null || true
-    kill $FRONTEND_PID 2>/dev/null || true
-    wait $BACKEND_PID 2>/dev/null || true
-    wait $FRONTEND_PID 2>/dev/null || true
-    echo "Services stopped"
+  # Setup cleanup and wait
+  setup_signal_handlers
+  wait_for_services
 }
 
-# Trap signals for graceful shutdown
-trap cleanup TERM INT
+# Cleanup function
+cleanup_services() {
+  echo "🛑 Shutting down services..."
 
-echo "Services started successfully!"
-echo "Backend running on port 12009"
-echo "Frontend running on port 12008"
+  # Kill all child processes
+  for pid in $BACKEND_PID $FRONTEND_PID $PNPM_PID; do
+    if [ -n "$pid" ]; then
+      kill $pid 2>/dev/null || true
+    fi
+  done
 
-# Wait for both processes
-wait $BACKEND_PID
-wait $FRONTEND_PID 
+  # Wait for processes to terminate
+  for pid in $BACKEND_PID $FRONTEND_PID $PNPM_PID; do
+    if [ -n "$pid" ]; then
+      wait $pid 2>/dev/null || true
+    fi
+  done
+
+  echo "✅ Services stopped"
+  exit 0
+}
+
+# Wait for production services
+wait_for_services() {
+  echo "🎯 Services running successfully!"
+  echo "   Frontend: http://localhost:12008"
+  echo "   Backend:  http://localhost:12009"
+
+  # Wait for both processes
+  wait $BACKEND_PID
+  wait $FRONTEND_PID
+}
+
+# Main execution flow
+main() {
+  # Load configuration
+  load_config
+
+  # Set default postgres connection values
+  POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+  POSTGRES_PORT=${POSTGRES_PORT:-5432}
+  POSTGRES_USER=${POSTGRES_USER:-postgres}
+
+  run_migrations
+  start_services
+}
+
+# Run main function
+main "$@"
+

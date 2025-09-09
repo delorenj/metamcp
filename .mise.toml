@@ -1,0 +1,117 @@
+[tools]
+node = "20"
+
+[tasks.build]
+description = "Build the Docker image"
+run = "docker build -t delorenj/metamcp:latest ."
+
+[tasks.push]
+description = "Push image to registry"
+depends = ["build"]
+run = "docker push delorenj/metamcp:latest"
+
+[tasks.deploy]
+description = "Deploy the application"
+depends = ["push"]
+run = "docker compose up -d"
+
+[tasks.start]
+description = "Start the application"
+run = "docker compose up -d"
+
+[tasks.stop] 
+description = "Stop the application"
+run = "docker compose down"
+
+[tasks.restart]
+description = "Restart the application"
+depends = ["stop", "start"]
+
+[tasks.logs]
+description = "View application logs"
+run = "docker compose logs -f metamcp"
+
+[tasks.shell]
+description = "Open shell in running container"
+run = "docker exec -it metamcp sh"
+
+[tasks.health]
+description = "Check application health"
+run = """
+echo "🏥 Health Check Started"
+echo "📊 Checking container status..."
+docker ps --filter name=metamcp --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+echo -e "\n🔍 Checking database connectivity..."
+if docker exec metamcp pg_isready -h postgres_db -p 5432 -U delorenj 2>/dev/null; then
+  echo "✅ Database connection: OK"
+else
+  echo "❌ Database connection: FAILED"
+fi
+
+echo -e "\n🗄️ Checking database tables..."
+TABLE_COUNT=$(docker exec -e PGPASSWORD="Ittr5eesol" metamcp psql -h postgres_db -p 5432 -U delorenj -d metamcp_db -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null || echo "0")
+if [ "$TABLE_COUNT" -gt 0 ]; then
+  echo "✅ Database tables: $TABLE_COUNT tables found"
+  
+  # Check for users
+  USER_COUNT=$(docker exec -e PGPASSWORD="Ittr5eesol" metamcp psql -h postgres_db -p 5432 -U delorenj -d metamcp_db -t -c "SELECT COUNT(*) FROM users;" 2>/dev/null || echo "0")
+  echo "👤 Users in database: $USER_COUNT"
+  
+  # Check signup status
+  SIGNUP_DISABLED=$(docker exec -e PGPASSWORD="Ittr5eesol" metamcp psql -h postgres_db -p 5432 -U delorenj -d metamcp_db -t -c "SELECT value FROM config WHERE id='DISABLE_SIGNUP';" 2>/dev/null || echo "")
+  if [ -z "$SIGNUP_DISABLED" ]; then
+    echo "🔓 Signup status: ENABLED (no config set - default behavior)"
+  elif [ "$SIGNUP_DISABLED" = "true" ]; then
+    echo "🔒 Signup status: DISABLED"
+  else
+    echo "🔓 Signup status: ENABLED"
+  fi
+else
+  echo "❌ Database tables: No tables found (migrations may have failed)"
+fi
+
+echo -e "\n🌐 Checking application endpoints..."
+CONTAINER_IP=$(docker inspect metamcp --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+echo "Container IP: $CONTAINER_IP"
+
+if curl -f -m 5 http://$CONTAINER_IP:12008/health 2>/dev/null; then
+  echo "✅ Frontend health: OK"
+else
+  echo "❌ Frontend health: FAILED"
+fi
+
+if curl -f -m 5 http://$CONTAINER_IP:12009/health 2>/dev/null; then
+  echo "✅ Backend health: OK"
+else
+  echo "❌ Backend health: FAILED"
+fi
+
+echo -e "\n🌐 Checking external access (Traefik)..."
+if curl -f -m 10 https://mcp.delo.sh/health 2>/dev/null; then
+  echo "✅ External access: OK"
+else
+  echo "❌ External access: FAILED (check Traefik/DNS)"
+fi
+
+echo -e "\n📝 Recent error logs:"
+docker logs metamcp --tail 10 | grep -i error || echo "No recent errors found"
+
+echo -e "\n✅ Health check complete"
+"""
+
+[tasks.clean]
+description = "Clean up containers and images"
+run = """
+docker compose down
+docker image rm delorenj/metamcp:latest || true
+docker system prune -f
+"""
+
+[tasks.dev-build]
+description = "Build without cache for development"
+run = "docker build --no-cache -t delorenj/metamcp:latest ."
+
+[tasks.update]
+description = "Full update cycle - build, push, deploy"
+depends = ["build", "push", "restart"]
