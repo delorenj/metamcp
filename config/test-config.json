@@ -1,0 +1,1 @@
+{"servers": [{"name": "test-server", "command": "echo", "args": ["Hello MCP World"], "enabled": true}]}

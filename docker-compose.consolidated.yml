@@ -1,0 +1,68 @@
+services:
+  metamcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.consolidated
+    container_name: metamcp
+    restart: unless-stopped
+    
+    # Resource limits to prevent memory leaks
+    mem_limit: 4g
+    mem_reservation: 1g
+    cpus: 2.0
+    pids_limit: 25
+    
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+    
+    # Health checks
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # High ports to avoid conflicts
+    ports:
+      - "9245:3000"
+    
+    # Volume-based configuration (your key requirement)
+    volumes:
+      - ./config:/config:ro
+      - mcp_data:/data
+    
+    # Minimal environment - all configuration via volume
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+      - NODE_ENV=production
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=3000
+      - CONFIG_DIR=/config
+    
+    # Additional container limits
+    ulimits:
+      nproc: 100
+      nofile:
+        soft: 1024
+        hard: 2048
+
+  # Optional: Standalone PostgreSQL for development
+  postgres:
+    image: postgres:16-alpine
+    container_name: metamcp-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "9543:5432"
+
+volumes:
+  mcp_data:
+  postgres_data:

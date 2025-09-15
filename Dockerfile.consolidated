@@ -1,0 +1,99 @@
+# MetaMCP Consolidated Dockerfile
+# Single parameterized image with volume-based MCP server configuration
+
+FROM node:20-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    curl \
+    git \
+    python3 \
+    py3-pip \
+    postgresql-client \
+    dumb-init
+
+# Set working directory
+WORKDIR /app
+
+# Copy and install base dependencies (skip monorepo build for now)
+COPY package*.json ./
+RUN npm install -g pnpm
+
+# Set shell environment for proper setup
+ENV SHELL=/bin/sh
+ENV PATH="/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Copy application code (minimal for MCP orchestration)
+COPY . .
+
+# Copy MCP-focused entrypoint script 
+COPY docker-entrypoint-mcp.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-mcp.sh
+
+# Create directories for configuration
+RUN mkdir -p /config/mcp-servers /config/endpoints /config/namespaces
+
+# Create configuration script
+COPY <<'EOF' /usr/local/bin/configure-mcp.sh
+#!/bin/sh
+set -e
+
+echo "🔧 Configuring MCP servers from volume..."
+
+# Default configuration if no volume mounted
+if [ ! -f /config/mcp-servers.json ]; then
+    echo "⚠️  No MCP configuration found, creating defaults..."
+    cat > /config/mcp-servers.json <<'DEFAULT'
+{
+  "servers": [
+    {
+      "name": "claude-flow",
+      "command": "npx",
+      "args": ["claude-flow@alpha", "mcp", "start"],
+      "env": {}
+    },
+    {
+      "name": "ruv-swarm", 
+      "command": "npx",
+      "args": ["ruv-swarm", "mcp", "start"],
+      "env": {}
+    }
+  ],
+  "endpoints": {
+    "default": "http://localhost:3000"
+  },
+  "namespaces": {
+    "default": "metamcp",
+    "development": "metamcp-dev",
+    "production": "metamcp-prod"
+  }
+}
+DEFAULT
+fi
+
+echo "✅ MCP configuration ready"
+EOF
+
+RUN chmod +x /usr/local/bin/configure-mcp.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${MCP_PORT:-3000}/health || exit 1
+
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+
+# Default environment
+ENV NODE_ENV=production
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=3000
+ENV CONFIG_DIR=/config
+
+# Startup command - use MCP-focused entrypoint
+CMD ["/usr/local/bin/docker-entrypoint-mcp.sh"]
+
+# Expose port
+EXPOSE 3000
+
+# Volume for MCP server configuration
+VOLUME ["/config"]

@@ -50,9 +50,11 @@ RUN apk add --no-cache curl postgresql-client
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Create non-root user
+# Create non-root user and logs directory
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S metamcp -u 1001
+    adduser -S metamcp -u 1001 && \
+    mkdir -p /app/logs && \
+    chown -R metamcp:nodejs /app
 
 USER metamcp
 

@@ -1,5 +1,5 @@
 [tools]
-node = "20"
+node = "24.3.0"
 
 [tasks.build]
 description = "Build the Docker image"

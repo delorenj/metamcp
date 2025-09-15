@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "dotenv -e .env.local turbo run dev",
+    "dev": "dotenv -e .env.local -- turbo run dev",
     "dev:docker": "docker compose -f docker-compose.dev.yml up --build",
     "dev:docker:down": "docker compose -f docker-compose.dev.yml down",
     "dev:docker:clean": "docker compose -f docker-compose.dev.yml down -v --remove-orphans",

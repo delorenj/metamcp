@@ -1,0 +1,91 @@
+{
+  "servers": [
+    {
+      "name": "claude-flow",
+      "command": "npx",
+      "args": ["claude-flow@alpha", "mcp", "start"],
+      "env": {
+        "CLAUDE_FLOW_DEBUG": "true"
+      },
+      "enabled": false,
+      "memory_limit": "512m"
+    },
+    {
+      "name": "ruv-swarm",
+      "command": "npx", 
+      "args": ["ruv-swarm", "mcp", "start"],
+      "env": {
+        "RUV_SWARM_MODE": "distributed"
+      },
+      "enabled": true,
+      "memory_limit": "256m"
+    },
+    {
+      "name": "kapture-mcp",
+      "command": "npx",
+      "args": ["kapture-mcp@latest", "bridge"],
+      "env": {},
+      "enabled": true,
+      "memory_limit": "128m"
+    },
+    {
+      "name": "magic-ui",
+      "command": "npx",
+      "args": ["@21st-dev/magic@latest"],
+      "env": {
+        "API_KEY": "${MAGIC_API_KEY}"
+      },
+      "enabled": true,
+      "memory_limit": "128m"
+    },
+    {
+      "name": "n8n-mcp",
+      "command": "npx",
+      "args": ["n8n-mcp"],
+      "env": {},
+      "enabled": true,
+      "memory_limit": "256m"
+    },
+    {
+      "name": "trello-mcp",
+      "command": "npx", 
+      "args": ["@delorenj/mcp-server-trello@1.3.1"],
+      "env": {},
+      "enabled": true,
+      "memory_limit": "128m"
+    },
+    {
+      "name": "demo-server",
+      "command": "node",
+      "args": ["-e", "console.log('Demo MCP Server running...'); setInterval(() => {}, 1000);"],
+      "env": {
+        "DEMO_ENV": "consolidated"
+      },
+      "enabled": true,
+      "memory_limit": "64m"
+    }
+  ],
+  "endpoints": {
+    "default": "http://localhost:3000",
+    "development": "http://localhost:3001", 
+    "production": "https://mcp.delo.sh"
+  },
+  "namespaces": {
+    "default": "metamcp",
+    "development": "metamcp-dev",
+    "testing": "metamcp-test",
+    "production": "metamcp-prod"
+  },
+  "resource_limits": {
+    "max_total_processes": 15,
+    "max_memory_per_server": "512m",
+    "max_total_memory": "4g",
+    "process_timeout": "30s"
+  },
+  "monitoring": {
+    "enabled": true,
+    "health_check_interval": "30s",
+    "metrics_collection": true,
+    "log_level": "info"
+  }
+}
