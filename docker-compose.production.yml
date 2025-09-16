@@ -11,14 +11,20 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - PORT=3000
       - MCP_PORT=3001
-    ports:
-      - "3000:3000"
-      - "3001:3001"
+    # No external ports needed - access via Traefik at mcp.delo.sh
     depends_on:
       - postgres
       - redis
     networks:
-      - metamcp-network
+      - proxy
+    labels:
+      # Traefik configuration for mcp.delo.sh
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.metamcp.loadbalancer.server.port=3000"
+      - "traefik.http.routers.metamcp.rule=Host(`mcp.delo.sh`)"
+      - "traefik.http.routers.metamcp.entrypoints=websecure"
+      - "traefik.http.routers.metamcp.tls.certresolver=letsencrypt"
     # Resource limits to prevent memory leaks
     deploy:
       resources:
@@ -65,7 +71,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./config/postgres:/docker-entrypoint-initdb.d
     networks:
-      - metamcp-network
+      - proxy
     deploy:
       resources:
         limits:
@@ -84,12 +90,11 @@ services:
     image: redis:7-alpine
     container_name: metamcp-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # No external port needed - only internal access
     volumes:
       - redis_data:/data
     networks:
-      - metamcp-network
+      - proxy
     deploy:
       resources:
         limits:
@@ -114,7 +119,7 @@ services:
       - ./scripts:/scripts
     command: ["sh", "/scripts/metamcp-process-killer.sh"]
     networks:
-      - metamcp-network
+      - proxy
     deploy:
       resources:
         limits:
@@ -130,8 +135,5 @@ volumes:
     driver: local
 
 networks:
-  metamcp-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+  proxy:
+    external: true
