@@ -1,0 +1,46 @@
+[Unit]
+Description=MetaMCP Service with Resource Limits
+After=docker.service
+Requires=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=/home/delorenj/code/utils/metamcp
+
+# User and group
+User=delorenj
+Group=delorenj
+
+# Resource limits at systemd level (additional protection)
+MemoryMax=5G
+MemorySwapMax=0
+TasksMax=50
+CPUQuota=200%
+
+# Process limits
+LimitNPROC=50
+LimitNOFILE=2048
+
+# Command to start the service
+ExecStartPre=/usr/bin/docker compose -f compose-fixed.yml down --remove-orphans
+ExecStart=/usr/bin/docker compose -f compose-fixed.yml up
+ExecStop=/usr/bin/docker compose -f compose-fixed.yml down
+ExecReload=/usr/bin/docker compose -f compose-fixed.yml restart
+
+# Restart policy
+Restart=on-failure
+RestartSec=30
+
+# Kill settings
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=90
+
+# Environment
+Environment="COMPOSE_HTTP_TIMEOUT=120"
+Environment="DOCKER_CLIENT_TIMEOUT=120"
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,75 @@
+services:
+  metamcp:
+    image: delorenj/metamcp:latest
+    container_name: metamcp
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Database connection to existing postgres
+      POSTGRES_HOST: postgres_db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-metamcp}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB:-metamcp}
+      
+      # Application URLs
+      APP_URL: https://mcp.delo.sh
+      NEXT_PUBLIC_APP_URL: https://mcp.delo.sh
+      
+      # Auth
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      
+      # Optional OIDC
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
+      
+      # Docker networking
+      TRANSFORM_LOCALHOST_TO_DOCKER_INTERNAL: true
+    networks:
+      - proxy
+    labels:
+      # Traefik configuration
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.metamcp.loadbalancer.server.port=12008"
+      
+      # Main frontend routes
+      - "traefik.http.routers.metamcp.rule=Host(`mcp.delo.sh`)"
+      - "traefik.http.routers.metamcp.entrypoints=websecure"
+      - "traefik.http.routers.metamcp.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.metamcp.service=metamcp"
+      - "traefik.http.routers.metamcp.priority=100"
+      
+      # SSE/MCP streaming routes (high priority)
+      - "traefik.http.routers.metamcp-sse.rule=Host(`mcp.delo.sh`) && (PathPrefix(`/mcp-proxy/`) || PathPrefix(`/metamcp/`))"
+      - "traefik.http.routers.metamcp-sse.entrypoints=websecure"
+      - "traefik.http.routers.metamcp-sse.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.metamcp-sse.service=metamcp-sse"
+      - "traefik.http.routers.metamcp-sse.priority=150"
+      
+      # SSE-optimized service
+      - "traefik.http.services.metamcp-sse.loadbalancer.server.port=12008"
+      - "traefik.http.services.metamcp-sse.loadbalancer.responseforwarding.flushinterval=1ms"
+      
+      # Middleware for CORS and headers
+      - "traefik.http.middlewares.metamcp-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.metamcp-headers.headers.customresponseheaders.Access-Control-Allow-Origin=*"
+      - "traefik.http.middlewares.metamcp-headers.headers.customresponseheaders.Access-Control-Allow-Methods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.metamcp-headers.headers.customresponseheaders.Access-Control-Allow-Headers=content-type,authorization,x-api-key,mcp-protocol-version,mcp-session-id"
+      
+      # Apply middleware
+      - "traefik.http.routers.metamcp.middlewares=metamcp-headers"
+      - "traefik.http.routers.metamcp-sse.middlewares=metamcp-headers"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  proxy:
+    external: true

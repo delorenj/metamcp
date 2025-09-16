@@ -1,0 +1,54 @@
+[Unit]
+Description=MetaMCP Service with Resource Limits
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/delorenj/code/utils/metamcp
+
+# User and group
+User=delorenj
+Group=delorenj
+
+# Resource limits at systemd level (additional protection)
+MemoryMax=5G
+MemorySwapMax=0
+TasksMax=150
+CPUQuota=200%
+
+# Process limits
+LimitNPROC=150
+LimitNOFILE=2048
+
+# Environment
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=/home/delorenj"
+
+# Load environment variables from .env file
+EnvironmentFile=-/home/delorenj/code/utils/metamcp/.env
+
+# Command to start the service
+ExecStartPre=/bin/bash -c 'docker stop metamcp metamcp-process-monitor 2>/dev/null || true'
+ExecStartPre=/bin/bash -c 'docker rm metamcp metamcp-process-monitor 2>/dev/null || true'
+ExecStart=/bin/bash /home/delorenj/code/utils/metamcp/scripts/run-with-limits.sh
+ExecStartPost=/bin/bash -c 'sleep 5 && docker run -d --name metamcp-process-monitor --restart unless-stopped --memory=128m --cpus="0.1" -v /home/delorenj/code/utils/metamcp/scripts:/scripts:ro -v /var/run/docker.sock:/var/run/docker.sock --network proxy alpine:latest /scripts/process-monitor.sh'
+
+# Command to stop the service
+ExecStop=/bin/bash -c 'docker stop metamcp metamcp-process-monitor 2>/dev/null || true'
+ExecStopPost=/bin/bash -c 'docker rm metamcp metamcp-process-monitor 2>/dev/null || true'
+
+# Restart policy
+Restart=on-failure
+RestartSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

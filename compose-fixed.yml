@@ -1,0 +1,132 @@
+services:
+  metamcp:
+    image: delorenj/metamcp:latest
+    container_name: metamcp
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Database connection to existing postgres
+      POSTGRES_HOST: postgres_db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-metamcp}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB:-metamcp}
+
+      # Application URLs
+      APP_URL: https://mcp.delo.sh
+      NEXT_PUBLIC_APP_URL: https://mcp.delo.sh
+
+      # Auth
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+
+      # Optional OIDC
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
+
+      # Docker networking
+      TRANSFORM_LOCALHOST_TO_DOCKER_INTERNAL: true
+
+      # Process management settings
+      NODE_OPTIONS: "--max-old-space-size=2048"
+      UV_THREADPOOL_SIZE: 4
+
+    # CRITICAL: Docker Compose v2 resource limits (non-swarm mode)
+    # These work with regular docker-compose, NOT deploy.resources
+    mem_limit: 4g          # Hard memory cap at 4GB
+    memswap_limit: 4g      # Prevent swap usage
+    cpus: "2.0"           # Limit to 2 CPUs
+    pids_limit: 100       # Max 100 PIDs (enough for startup, still prevents explosion)
+
+    # Additional security and resource controls
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nproc:
+        soft: 100
+        hard: 100
+      nofile:
+        soft: 1024
+        hard: 2048
+
+    networks:
+      - proxy
+    labels:
+      # Traefik configuration
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.metamcp.loadbalancer.server.port=12008"
+
+      # Main frontend routes
+      - "traefik.http.routers.metamcp.rule=Host(`mcp.delo.sh`)"
+      - "traefik.http.routers.metamcp.entrypoints=websecure"
+      - "traefik.http.routers.metamcp.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.metamcp.service=metamcp"
+      - "traefik.http.routers.metamcp.priority=100"
+
+      # SSE/MCP streaming routes (high priority)
+      - "traefik.http.routers.metamcp-sse.rule=Host(`mcp.delo.sh`) && (PathPrefix(`/mcp-proxy/`) || PathPrefix(`/metamcp/`))"
+      - "traefik.http.routers.metamcp-sse.entrypoints=websecure"
+      - "traefik.http.routers.metamcp-sse.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.metamcp-sse.service=metamcp-sse"
+      - "traefik.http.routers.metamcp-sse.priority=150"
+
+      # SSE-optimized service
+      - "traefik.http.services.metamcp-sse.loadbalancer.server.port=12008"
+      - "traefik.http.services.metamcp-sse.loadbalancer.responseforwarding.flushinterval=1ms"
+
+      # Middleware for CORS and headers
+      - "traefik.http.middlewares.metamcp-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.metamcp-headers.headers.customresponseheaders.Access-Control-Allow-Origin=*"
+      - "traefik.http.middlewares.metamcp-headers.headers.customresponseheaders.Access-Control-Allow-Methods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.metamcp-headers.headers.customresponseheaders.Access-Control-Allow-Headers=content-type,authorization,x-api-key,mcp-protocol-version,mcp-session-id"
+
+      # Apply middleware
+      - "traefik.http.routers.metamcp.middlewares=metamcp-headers"
+      - "traefik.http.routers.metamcp-sse.middlewares=metamcp-headers"
+
+    # Enhanced health check with memory monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -E 'npm exec|@modelcontextprotocol' | grep -v grep | wc -l | awk '{if ($$1 > 20) exit 1}' && curl -f http://localhost:12008/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Volumes
+    volumes:
+      - ./scripts:/scripts:ro
+      - metamcp-cache:/app/.cache
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # Process monitor service - runs alongside to kill excessive processes
+  process-monitor:
+    image: alpine:latest
+    container_name: metamcp-process-monitor
+    restart: unless-stopped
+    command: ["/scripts/process-monitor.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    mem_limit: 128m
+    cpus: "0.1"
+    networks:
+      - proxy
+    depends_on:
+      - metamcp
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  metamcp-cache:
+    driver: local
