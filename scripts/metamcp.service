@@ -15,14 +15,8 @@ WorkingDirectory=/home/delorenj/code/utils/metamcp
 User=delorenj
 Group=delorenj
 
-# Resource limits at systemd level (additional protection)
-MemoryMax=5G
-MemorySwapMax=0
-TasksMax=500
-CPUQuota=200%
-
-# Process limits
-LimitNPROC=500
+# Resource limits at systemd level (minimal to prevent conflicts)
+# Docker handles memory/CPU/PID limits for optimal performance
 LimitNOFILE=4096
 
 # Environment
