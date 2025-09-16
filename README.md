@@ -8,44 +8,38 @@ This deployment includes a **permanent fix** for the MetaMCP memory leak issue w
 
 ### Problem Solved
 - **Before**: Up to 300+ npm/node processes spawning uncontrolled
-- **After**: Strictly limited to 4-25 processes with automatic cleanup
+- **After**: Strictly limited to 4-100 processes with automatic cleanup
 - **Memory Usage**: Reduced from unlimited to 4GB hard limit
 - **Process Reduction**: 86% fewer processes (29 → 4 typical count)
 
 ### Fix Components
 
-#### 1. Docker Resource Constraints (`docker-compose.production.yml`)
-```yaml
-deploy:
-  resources:
-    limits:
-      memory: 4g        # Hard memory limit
-      cpus: '2.0'       # CPU limit
-      pids: 25          # Process limit (critical fix)
-    reservations:
-      memory: 1g        # Guaranteed memory
-      cpus: '0.5'       # Guaranteed CPU
+#### 1. Docker Resource Constraints (`scripts/run-with-limits.sh`)
+```bash
+docker run -d \
+  --memory=4g \
+  --cpus=2.0 \
+  --pids-limit=100 \
+  --ulimit nproc=100:100 \
+  --security-opt no-new-privileges:true
 ```
 
-#### 2. Automated Process Monitoring (`scripts/metamcp-process-killer.sh`)
-- **Real-time monitoring**: Checks every 30 seconds
-- **Smart cleanup**: Kills duplicate npm exec processes first
-- **Emergency fallback**: Kills oldest processes if count exceeds 15
-- **Logging**: Full audit trail of all process interventions
+#### 2. Systemd Service Management
+- **Auto-start on boot**: Service enabled for system startup
+- **Resource isolation**: Docker handles all resource limits
+- **Simple management**: Direct container start/stop commands
+- **Failure recovery**: Automatic restart on container failure
 
 #### 3. Security & Stability Features
-```yaml
-security_opt:
-  - no-new-privileges:true  # Prevent privilege escalation
-read_only: false           # Allow necessary file operations
-tmpfs:
-  - /tmp:noexec,nosuid,size=100m  # Secure temp directory
-```
+- **No privilege escalation**: `no-new-privileges:true` security option
+- **Process limits**: Hard limit of 100 PIDs per container
+- **Memory boundaries**: 4GB hard limit with swap control
+- **CPU throttling**: Maximum 2 CPU cores
 
 #### 4. Health Monitoring
-- **Health checks**: Auto-restart on memory issues
-- **Log rotation**: Prevents disk space exhaustion (10MB max, 3 files)
-- **Container monitoring**: Automatic failure detection and recovery
+- **Health checks**: Built-in container health monitoring
+- **Resource tracking**: Real-time CPU, memory, and process monitoring
+- **Automatic recovery**: Container restart on health check failures
 
 ## Quick Start
 
@@ -55,15 +49,15 @@ tmpfs:
    # Edit .env with your settings
    ```
 
-2. **Deploy with memory leak protection**:
+2. **Install as systemd service**:
    ```bash
-   mise run deploy
+   ./install-as-systemd-service.sh
    ```
 
 3. **Monitor resource usage**:
    ```bash
-   mise run health
-   mise run logs
+   systemctl status metamcp.service
+   docker stats metamcp --no-stream
    ```
 
 4. **Access**: https://mcp.delo.sh
@@ -84,8 +78,32 @@ tmpfs:
 - `OIDC_CLIENT_SECRET`
 - `OIDC_DISCOVERY_URL`
 
-## Management with Mise
+## Management Commands
 
+### Systemd Service Management
+```bash
+# Service control
+sudo systemctl start metamcp.service    # Start MetaMCP
+sudo systemctl stop metamcp.service     # Stop MetaMCP  
+sudo systemctl restart metamcp.service  # Restart MetaMCP
+sudo systemctl status metamcp.service   # Check status
+
+# Boot management
+sudo systemctl enable metamcp.service   # Auto-start on boot
+sudo systemctl disable metamcp.service  # Disable auto-start
+```
+
+### Direct Container Management
+```bash
+# Manual container operations
+docker start metamcp                     # Start container
+docker stop metamcp                      # Stop container
+docker restart metamcp                   # Restart container
+docker logs metamcp                      # View logs
+docker stats metamcp --no-stream        # Resource usage
+```
+
+### Mise Tasks (if available)
 ```bash
 mise run start      # Start services with monitoring
 mise run stop       # Stop all services
@@ -103,19 +121,19 @@ mise run monitor    # Real-time process monitoring
 ### Check Current Resource Usage
 ```bash
 # Container resource usage
-docker stats metamcp-app --no-stream
+docker stats metamcp --no-stream
 
 # Process count monitoring
-docker exec metamcp-app ps aux | grep -E "(npm|node)" | wc -l
+docker exec metamcp ps aux | grep -E "(npm|node)" | wc -l
 
 # Memory usage breakdown
-docker exec metamcp-app cat /proc/meminfo
+docker exec metamcp cat /proc/meminfo
 ```
 
 ### Resource Limits in Effect
 - **Memory**: 4GB hard limit (1GB reserved)
 - **CPU**: 2.0 cores max (0.5 cores reserved)
-- **Processes**: 25 PIDs maximum (critical for leak prevention)
+- **Processes**: 100 PIDs maximum (critical for leak prevention)
 - **Temp Space**: 100MB secure tmpfs
 - **Logs**: 10MB per file, 3 files max rotation
 
@@ -124,15 +142,15 @@ docker exec metamcp-app cat /proc/meminfo
 ```
 Internet → Traefik (SSL/Routing) → MetaMCP Container → PostgreSQL/Redis
                                       ↓
-                               Process Monitor
-                              (Auto-cleanup)
+                               Systemd Service
+                              (Auto-management)
 ```
 
 ## Memory Leak Prevention Details
 
 ### How the Fix Works
 
-1. **PID Limit Enforcement**: Docker's `pids: 25` limit prevents runaway process creation
+1. **PID Limit Enforcement**: Docker's `pids: 100` limit prevents runaway process creation
 2. **Active Process Monitoring**: Background service continuously monitors and cleans up
 3. **Smart Process Management**: Distinguishes between necessary and duplicate processes
 4. **Resource Boundaries**: Hard memory/CPU limits prevent system exhaustion
@@ -154,15 +172,15 @@ If the container becomes unresponsive:
 docker compose -f docker-compose.production.yml restart metamcp
 
 # Check resource recovery
-docker stats metamcp-app --no-stream
+docker stats metamcp --no-stream
 ```
 
 ## Infrastructure
 
 - **Domain**: mcp.delo.sh (via Traefik)
-- **Container**: metamcp-app (resource-limited)
+- **Container**: metamcp (resource-limited)
 - **Monitoring**: metamcp-process-monitor (cleanup automation)
-- **Network**: metamcp-network (isolated)
+- **Network**: proxy (shared with Traefik)
 - **Database**: PostgreSQL with connection pooling
 - **Cache**: Redis with memory limits
 - **SSL**: Automatic via Traefik Let's Encrypt
@@ -188,30 +206,30 @@ docker stats metamcp-app --no-stream
 mise run health
 
 # View memory-related logs
-docker logs metamcp-app | grep -i memory
+docker logs metamcp | grep -i memory
 
 # Monitor real-time resource usage
-docker stats metamcp-app
+docker stats metamcp
 ```
 
 ### Process Count Issues
 ```bash
 # Check current process count
-docker exec metamcp-app ps aux | grep -E "(npm|node)" | wc -l
+docker exec metamcp ps aux | grep -E "(npm|node)" | wc -l
 
 # View process cleanup logs
 docker logs metamcp-process-monitor
 
 # Manual process cleanup (emergency)
-docker exec metamcp-app pkill -f "npm exec"
+docker exec metamcp pkill -f "npm exec"
 ```
 
 ### Common Commands
 - **Check logs**: `mise run logs`
 - **Health check**: `mise run health`
 - **Container status**: `docker ps | grep metamcp`
-- **Resource monitoring**: `docker stats metamcp-app --no-stream`
-- **Process count**: `docker exec metamcp-app ps aux | wc -l`
+- **Resource monitoring**: `docker stats metamcp --no-stream`
+- **Process count**: `docker exec metamcp ps aux | wc -l`
 - **Network**: Ensure 'proxy' network exists and Traefik is running
 
 ## Performance Metrics
@@ -257,7 +275,7 @@ docker stats --no-stream
 mise run update
 
 # Verify fix is still active
-docker exec metamcp-app ps aux | grep -E "(npm|node)" | wc -l
+docker exec metamcp ps aux | grep -E "(npm|node)" | wc -l
 ```
 
 This deployment permanently solves the MetaMCP memory leak issue through comprehensive process management, resource constraints, and automated monitoring.

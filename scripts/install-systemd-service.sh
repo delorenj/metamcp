@@ -32,6 +32,9 @@ systemctl disable ${SERVICE_NAME} 2>/dev/null || true
 
 # Step 2: Copy service file
 echo -e "${YELLOW}Step 2: Installing service file...${NC}"
+# Ensure correct resource limits
+sed -i 's/TasksMax=150/TasksMax=500/g' ${SOURCE_FILE} 2>/dev/null || true
+sed -i 's/LimitNPROC=150/LimitNPROC=500/g' ${SOURCE_FILE} 2>/dev/null || true
 cp ${SOURCE_FILE} ${SERVICE_FILE}
 chmod 644 ${SERVICE_FILE}
 echo -e "${GREEN}✓ Service file installed${NC}"

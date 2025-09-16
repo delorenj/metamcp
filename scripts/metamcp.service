@@ -18,12 +18,12 @@ Group=delorenj
 # Resource limits at systemd level (additional protection)
 MemoryMax=5G
 MemorySwapMax=0
-TasksMax=150
+TasksMax=500
 CPUQuota=200%
 
 # Process limits
-LimitNPROC=150
-LimitNOFILE=2048
+LimitNPROC=500
+LimitNOFILE=4096
 
 # Environment
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
