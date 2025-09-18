@@ -222,14 +222,33 @@ export class ProcessManagedStdioTransport implements Transport {
   async close(): Promise<void> {
     this._abortController.abort();
 
-    // Kill the entire process group to ensure full cleanup
+    // More aggressive process cleanup
     if (this._process?.pid) {
       try {
+        // First try SIGTERM
         process.kill(-this._process.pid, "SIGTERM");
+
+        // Wait a bit, then force kill if still running
+        setTimeout(() => {
+          if (this._process?.pid) {
+            try {
+              process.kill(-this._process.pid, "SIGKILL");
+            } catch (error) {
+              // Process already terminated, ignore
+            }
+          }
+        }, 1000);
       } catch (error) {
         // Process might already be terminated, ignore errors
         console.warn("Failed to kill process group:", error);
       }
+    }
+
+    // Clean up event listeners to prevent memory leaks
+    if (this._stderrStream) {
+      this._stderrStream.removeAllListeners();
+      this._stderrStream.destroy();
+      this._stderrStream = null;
     }
 
     this._process = undefined;

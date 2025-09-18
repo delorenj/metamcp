@@ -151,9 +151,15 @@ export const connectMetaMcpClient = async (
   let retry = true;
 
   while (retry) {
+    let client: Client | undefined;
+    let transport: Transport | undefined;
+
     try {
       // Create fresh client and transport for each attempt
-      const { client, transport } = createMetaMcpClient(serverParams);
+      const result = createMetaMcpClient(serverParams);
+      client = result.client;
+      transport = result.transport;
+
       if (!client || !transport) {
         return undefined;
       }
@@ -163,11 +169,35 @@ export const connectMetaMcpClient = async (
       return {
         client,
         cleanup: async () => {
-          await transport.close();
-          await client.close();
+          try {
+            await transport?.close();
+          } catch (error) {
+            console.warn("Error closing transport:", error);
+          }
+          try {
+            await client?.close();
+          } catch (error) {
+            console.warn("Error closing client:", error);
+          }
         },
       };
     } catch (error) {
+      // Clean up failed connection attempt
+      if (transport) {
+        try {
+          await transport.close();
+        } catch (cleanupError) {
+          console.warn("Error cleaning up failed transport:", cleanupError);
+        }
+      }
+      if (client) {
+        try {
+          await client.close();
+        } catch (cleanupError) {
+          console.warn("Error cleaning up failed client:", cleanupError);
+        }
+      }
+
       metamcpLogStore.addLog(
         "client",
         "error",

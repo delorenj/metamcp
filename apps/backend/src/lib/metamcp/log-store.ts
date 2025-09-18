@@ -9,8 +9,23 @@ export interface MetaMcpLogEntry {
 
 class MetaMcpLogStore {
   private logs: MetaMcpLogEntry[] = [];
-  private readonly maxLogs = 1000; // Keep only the last 1000 logs
+  private readonly maxLogs = 200; // Reduced from 1000 to prevent memory buildup
   private readonly listeners: Set<(log: MetaMcpLogEntry) => void> = new Set();
+  private cleanupInterval: NodeJS.Timeout | null = null;
+
+  constructor() {
+    // Start cleanup interval to prevent memory leaks
+    this.cleanupInterval = setInterval(() => {
+      this.performCleanup();
+    }, 60000); // Clean up every minute
+  }
+
+  private performCleanup() {
+    // More aggressive cleanup - keep only half the max logs
+    if (this.logs.length > this.maxLogs / 2) {
+      this.logs = this.logs.slice(-(this.maxLogs / 2));
+    }
+  }
 
   addLog(
     serverName: string,
@@ -18,6 +33,11 @@ class MetaMcpLogStore {
     message: string,
     error?: unknown,
   ) {
+    // Skip repetitive error messages to prevent spam
+    if (level === "error" && this.isRepetitiveError(message)) {
+      return;
+    }
+
     const logEntry: MetaMcpLogEntry = {
       id: crypto.randomUUID(),
       timestamp: new Date(),
@@ -39,7 +59,7 @@ class MetaMcpLogStore {
       this.logs = this.logs.slice(-this.maxLogs);
     }
 
-    // Also log to console for debugging
+    // Only log errors and warnings to console to reduce noise
     const fullMessage = `[MetaMCP][${serverName}] ${message}`;
     switch (level) {
       case "error":
@@ -49,7 +69,7 @@ class MetaMcpLogStore {
         console.warn(fullMessage, error || "");
         break;
       case "info":
-        console.log(fullMessage, error || "");
+        // Skip info logs to reduce console spam
         break;
     }
 
@@ -61,6 +81,15 @@ class MetaMcpLogStore {
         console.error("Error notifying log listener:", err);
       }
     });
+  }
+
+  private isRepetitiveError(message: string): boolean {
+    // Check if we've seen this error message recently
+    const recentLogs = this.logs.slice(-10);
+    const similarCount = recentLogs.filter(log =>
+      log.level === "error" && log.message === message
+    ).length;
+    return similarCount >= 3; // Skip if we've seen this error 3+ times recently
   }
 
   getLogs(limit?: number): MetaMcpLogEntry[] {
@@ -79,6 +108,15 @@ class MetaMcpLogStore {
 
   getLogCount(): number {
     return this.logs.length;
+  }
+
+  destroy(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    this.logs = [];
+    this.listeners.clear();
   }
 }
 
