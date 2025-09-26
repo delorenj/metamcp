@@ -5,21 +5,21 @@ services:
     restart: unless-stopped
     env_file: .env
 
-    # Resource limits - Balanced for ~100 MCP servers
-    mem_limit: 8g          # Increased memory for MCP servers
-    memswap_limit: 8g      # Prevent swap usage
-    cpus: "4.0"           # More CPU for parallel MCP processing
-    pids_limit: 5000      # Reasonable limit for ~100 MCP servers
+    # Resource limits - Increased for MCP server stability
+    mem_limit: 32g         # More memory for MCP servers
+    memswap_limit: 32g     # Prevent swap usage
+    cpus: "6.0"           # More CPU for parallel MCP processing
+    pids_limit: 10000     # Higher limit for MCP servers
 
     # Security
     security_opt:
       - no-new-privileges:true
 
-    # Process limits - appropriate for MCP server workload
+    # Process limits - increased for MCP server workload
     ulimits:
       nproc:
-        soft: 5000
-        hard: 5000
+        soft: 10000
+        hard: 10000
       nofile:
         soft: 8192
         hard: 16384
