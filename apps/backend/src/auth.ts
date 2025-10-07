@@ -35,6 +35,33 @@ if (process.env.OIDC_CLIENT_ID && process.env.OIDC_CLIENT_SECRET) {
   oidcProviders.push(oidcConfig);
 }
 
+const trustedOrigins = new Set<string>([
+  "http://localhost",
+  "http://localhost:3000",
+  "http://localhost:12008",
+  "http://127.0.0.1",
+  "http://127.0.0.1:12008",
+  "http://127.0.0.1:3000",
+  "http://0.0.0.0",
+  "http://0.0.0.0:3000",
+  "http://0.0.0.0:12008",
+]);
+
+const envOrigins = [BETTER_AUTH_URL, process.env.NEXT_PUBLIC_APP_URL];
+for (const origin of envOrigins) {
+  if (!origin) continue;
+  try {
+    const parsed = new URL(origin);
+    trustedOrigins.add(`${parsed.protocol}//${parsed.host}`);
+    trustedOrigins.add(origin);
+  } catch (error) {
+    console.warn(
+      `Skipping invalid trusted origin from environment: ${origin}. Error:`,
+      error,
+    );
+  }
+}
+
 export const auth = betterAuth({
   secret: BETTER_AUTH_SECRET,
   baseURL: BETTER_AUTH_URL,
@@ -47,17 +74,19 @@ export const auth = betterAuth({
       verification: schema.verificationsTable,
     },
   }),
-  trustedOrigins: [
-    "http://localhost", // Added this line to fix the "Invalid origin" error
-    "http://localhost:3000",
-    "http://localhost:12008",
-    "http://127.0.0.1", // Also added this for good measure
-    "http://127.0.0.1:12008",
-    "http://127.0.0.1:3000",
-    "http://0.0.0.0",
-    "http://0.0.0.0:3000",
-    "http://0.0.0.0:12008",
-  ],
+  trustedOrigins: Array.from(trustedOrigins),
+  socialProviders: {
+    // GitHub OAuth
+    ...(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+      ? {
+          github: {
+            clientId: process.env.GITHUB_CLIENT_ID,
+            clientSecret: process.env.GITHUB_CLIENT_SECRET,
+            enabled: true,
+          },
+        }
+      : {}),
+  },
   plugins: [
     // Add generic OAuth plugin for OIDC support
     ...(oidcProviders.length > 0
@@ -106,6 +135,8 @@ export const auth = betterAuth({
 
 console.log("✓ Better Auth instance created successfully");
 console.log(`✓ OIDC Providers configured: ${oidcProviders.length}`);
+console.log(`✓ GitHub OAuth configured: ${!!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET)}`);
+console.log("✓ Trusted origins:", Array.from(trustedOrigins));
 
 export type Session = typeof auth.$Infer.Session;
 // Note: User type needs to be inferred from Session.user

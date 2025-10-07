@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 
 import { endpointsRepository } from "../db/repositories/endpoints.repo";
+import cogneeProxyRouter from "./cognee-proxy";
 import { openApiRouter } from "./public-metamcp/openapi";
 import sseRouter from "./public-metamcp/sse";
 import streamableHttpRouter from "./public-metamcp/streamable-http";
@@ -35,6 +36,9 @@ publicEndpointsRouter.use((req, res, next) => {
 // Use StreamableHTTP router for /mcp routes
 publicEndpointsRouter.use(streamableHttpRouter);
 
+// Use Cognee proxy router for /cognee routes
+publicEndpointsRouter.use("/cognee", cogneeProxyRouter);
+
 // Use SSE router for /sse and /message routes
 publicEndpointsRouter.use(sseRouter);
 
@@ -62,6 +66,7 @@ publicEndpointsRouter.get("/", async (req, res) => {
         sse: `/metamcp/${endpoint.name}/sse`,
         api: `/metamcp/${endpoint.name}/api`,
         openapi: `/metamcp/${endpoint.name}/api/openapi.json`,
+        cognee: `/metamcp/cognee/${endpoint.name}/mcp`,
       },
     }));
 

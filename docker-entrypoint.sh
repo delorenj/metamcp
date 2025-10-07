@@ -4,6 +4,9 @@ set -e
 
 CONFIG_DIR=/app/config
 
+# Ensure bun/uv shims installed during build are discoverable when running as non-root
+export PATH="/opt/bun/bin:/opt/uv:$PATH"
+
 echo "🚀 Starting MetaMCP..."
 echo "📁 Working directory: $(pwd)"
 echo "🔧 Config directory: $CONFIG_DIR"
@@ -79,17 +82,19 @@ start_services() {
   # Start frontend
   echo "   Starting frontend server..."
   cd /app/apps/frontend
-  PORT=12008 pnpm start &
+  ls -la /app/apps/frontend/node_modules/.bin/next > /app/logs/next_permissions.log 2>&1
+  HOST=0.0.0.0 PORT=12008 pnpm start > /app/logs/frontend.log 2>&1 &
   FRONTEND_PID=$!
 
   # Wait and verify frontend
-  sleep 3
+  sleep 10
   if ! kill -0 $FRONTEND_PID 2>/dev/null; then
     echo "❌ Frontend server died! Exiting..."
     kill $BACKEND_PID 2>/dev/null
     exit 1
   fi
   echo "✅ Frontend server started (PID: $FRONTEND_PID)"
+  ls -la /app/apps/frontend/node_modules/.bin/next
 
   # Setup cleanup and wait
   setup_signal_handlers
@@ -145,4 +150,3 @@ main() {
 
 # Run main function
 main "$@"
-

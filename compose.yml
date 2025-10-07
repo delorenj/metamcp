@@ -1,15 +1,16 @@
 services:
   metamcp:
-    image: delorenj/metamcp:latest
+    build: .
+    image: ghcr.io/delorenj/metamcp:latest
     container_name: metamcp
     restart: unless-stopped
     env_file: .env
 
     # Resource limits - Increased for MCP server stability
-    mem_limit: 32g         # More memory for MCP servers
-    memswap_limit: 32g     # Prevent swap usage
-    cpus: "6.0"           # More CPU for parallel MCP processing
-    pids_limit: 10000     # Higher limit for MCP servers
+    mem_limit: 32g # More memory for MCP servers
+    memswap_limit: 32g # Prevent swap usage
+    cpus: "6.0" # More CPU for parallel MCP processing
+    pids_limit: 10000 # Higher limit for MCP servers
 
     # Security
     security_opt:
@@ -137,6 +138,102 @@ networks:
   proxy:
     external: true
 
+  # Cognee MCP Server - AI Memory & Knowledge Graph
+  cognee-mcp:
+    build: ./cognee-mcp-docker
+    container_name: cognee-mcp
+    restart: unless-stopped
+    env_file: .env
+
+    # Resource limits
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: "1.0"
+    pids_limit: 1000
+
+    # Security
+    security_opt:
+      - no-new-privileges:true
+
+    # Process limits
+    ulimits:
+      nproc:
+        soft: 1000
+        hard: 1000
+      nofile:
+        soft: 4096
+        hard: 8192
+
+    environment:
+      # Transport configuration
+      TRANSPORT_MODE: http
+      COGNEE_HOST: 0.0.0.0
+      COGNEE_PORT: 8000
+      COGNEE_PATH: /mcp
+
+      # LLM Provider (configurable via .env)
+      COGNEE_LLM_PROVIDER: ${COGNEE_LLM_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      # Database connection (optional, for persistent storage)
+      COGNEE_DATABASE_URL: ${COGNEE_DATABASE_URL:-}
+
+      # Cognee configuration
+      COGNEE_MEMORY_BACKEND: ${COGNEE_MEMORY_BACKEND:-local}
+
+    # Add host.docker.internal for database connectivity
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - proxy
+
+    labels:
+      # Traefik configuration
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.cognee-mcp.loadbalancer.server.port=8000"
+
+      # Cognee MCP streaming routes
+      - "traefik.http.routers.cognee-mcp.rule=Host(`mcp.delo.sh`) && PathPrefix(`/cognee/`)"
+      - "traefik.http.routers.cognee-mcp.entrypoints=websecure"
+      - "traefik.http.routers.cognee-mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.cognee-mcp.service=cognee-mcp"
+      - "traefik.http.routers.cognee-mcp.priority=140"
+
+      # Streaming-optimized service
+      - "traefik.http.services.cognee-mcp-stream.loadbalancer.server.port=8000"
+      - "traefik.http.services.cognee-mcp-stream.loadbalancer.responseforwarding.flushinterval=1ms"
+
+      # Middleware for CORS and headers
+      - "traefik.http.middlewares.cognee-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.cognee-headers.headers.customresponseheaders.Access-Control-Allow-Origin=*"
+      - "traefik.http.middlewares.cognee-headers.headers.customresponseheaders.Access-Control-Allow-Methods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cognee-headers.headers.customresponseheaders.Access-Control-Allow-Headers=content-type,authorization,x-api-key,mcp-protocol-version,mcp-session-id"
+
+      # Apply middleware
+      - "traefik.http.routers.cognee-mcp.middlewares=cognee-headers"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    volumes:
+      - cognee-data:/app/data
+
 volumes:
   metamcp-cache:
+    driver: local
+  cognee-data:
     driver: local

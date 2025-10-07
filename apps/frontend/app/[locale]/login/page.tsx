@@ -22,6 +22,7 @@ function LoginForm() {
   const [isOidcLoading, setIsOidcLoading] = useState(false);
   const [isOidcEnabled, setIsOidcEnabled] = useState(false);
   const [authProvidersLoading, setAuthProvidersLoading] = useState(true);
+  const [isTryingAltLogin, setIsTryingAltLogin] = useState(false);
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -101,6 +102,29 @@ function LoginForm() {
     }
   };
 
+  const handleAltLogin = async () => {
+    setIsTryingAltLogin(true);
+    setError("");
+
+    try {
+      const { error } = await authClient.signIn.email({
+        email: "jaradd@gmail.com",
+        password: "somePassword",
+        callbackURL: callbackUrl,
+      });
+
+      if (error) {
+        setError(error.message || t("auth:signInError"));
+      } else {
+        router.push(callbackUrl);
+      }
+    } catch (_err) {
+      setError(t("auth:signInError"));
+    } finally {
+      setIsTryingAltLogin(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="space-y-2 text-center">
@@ -153,6 +177,15 @@ function LoginForm() {
           {isLoading ? t("auth:signingIn") : t("auth:signIn")}
         </Button>
       </form>
+
+      <Button
+        variant="outline"
+        className="w-full"
+        onClick={handleAltLogin}
+        disabled={isTryingAltLogin}
+      >
+        {isTryingAltLogin ? "Trying..." : "Try Alternative Login"}
+      </Button>
 
       {!authProvidersLoading && isOidcEnabled && (
         <>
